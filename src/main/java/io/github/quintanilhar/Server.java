@@ -6,12 +6,6 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Arrays;
-
-import com.google.api.client.http.GenericUrl;
-import com.google.api.client.http.HttpRequest;
-import com.google.api.client.http.HttpResponse;
-import com.google.api.client.http.HttpTransport;
-import com.google.api.client.http.javanet.NetHttpTransport;
  
 import opennlp.tools.namefind.NameFinderME;
 import opennlp.tools.namefind.TokenNameFinderModel;
@@ -30,12 +24,14 @@ import spark.ModelAndView;
 import spark.template.velocity.VelocityTemplateEngine;
 
 import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+
+import io.github.quintanilhar.jobad.Attribute;
 
 public class Server {
-    static final HttpTransport HTTP_TRANSPORT = new NetHttpTransport();
+    static final Logger log = LoggerFactory.getLogger(Server.class);
 
     public static void main(String[] args) {
-        Logger log = LoggerFactory.getLogger(BasicNameFinder.class);
 
 		get("/", (request, response) -> {
             Map<String, Object> model = new HashMap<>();
@@ -52,7 +48,7 @@ public class Server {
             // Load the model
             log.info("Loading the model...");
             TokenNameFinderModel model = new TokenNameFinderModel(
-                new File("src/main/resources/pt-BR/model/role.bin")
+                new File("src/main/resources/pt-BR/model/job.bin")
             );
 
             // Create a NameFinder using the model
@@ -66,12 +62,17 @@ public class Server {
             // Find the names in the tokens and return Span objects
             Span[] nameSpans = finder.find(tokens);
 
-            log.info("Found: " + Arrays.toString(Span.spansToStrings(nameSpans, tokens)));
+            Attribute[] attributes = new Attribute[nameSpans.length];
+
+            int i = 0;
+            for (Span span : nameSpans) {
+                attributes[i++] = new Attribute(span.getType(), Server.getStringFromSpan(span, tokens));
+            }
 
             Map<String, Object> variables = new HashMap<>();
 
             variables.put("url", request.queryParams("url"));
-            variables.put("attributes", Span.spansToStrings(nameSpans, tokens));
+            variables.put("attributes", attributes);
 
             // The wm files are located under the resources directory
             return new ModelAndView(variables, "view.vm");
@@ -79,12 +80,19 @@ public class Server {
     }
 
     private static String getContentFromUrl(String url) throws IOException {
-        HttpRequest request = HTTP_TRANSPORT.createRequestFactory().buildGetRequest(
-                new GenericUrl(url)
-        );
-        HttpResponse response = request.execute();
-        System.out.println(response.getStatusCode());
+        Document doc = Jsoup.connect(url).get();
 
-        return Jsoup.parse(response.parseAsString()).text();
+        return doc.body().text();
+    }
+
+    private static String getStringFromSpan(final Span reducedSpan,
+            final String[] tokens) {
+
+        StringBuilder sb = new StringBuilder();
+        for (int si = reducedSpan.getStart(); si < reducedSpan.getEnd(); si++) {
+            sb.append(tokens[si]).append(" ");
+        }
+
+        return sb.toString().trim();
     }
 }
